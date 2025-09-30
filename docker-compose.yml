@@ -1,0 +1,94 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h 127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: ${MINIO_IMAGE}
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":${MINIO_CONSOLE_PORT}"
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - ./data/minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  minio-mc-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+      mc mb -p local/${MINIO_BUCKET} || true &&
+      mc anonymous set public local/${MINIO_BUCKET} || true &&
+      exit 0
+      "
+    restart: "no"
+
+  directus:
+    image: ${DIRECTUS_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-mc-init:
+        condition: service_started
+    ports:
+      - "${DIRECTUS_PORT}:8055"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL}
+      KEY: ${KEY}
+      SECRET: ${SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      WEBSOCKETS_ENABLED: "${WEBSOCKETS_ENABLED}"
+      CORS_ENABLED: "${CORS_ENABLED}"
+      CORS_ORIGIN: ${CORS_ORIGIN}
+
+      # Banco: Postgres (container separado)
+      DB_CLIENT: "pg"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_DATABASE: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # Storage: S3 (MinIO local)
+      STORAGE_LOCATIONS: "s3"
+      STORAGE_S3_DRIVER: "${STORAGE_DRIVER}"
+      STORAGE_S3_BUCKET: "${STORAGE_S3_BUCKET}"
+      STORAGE_S3_KEY: "${STORAGE_S3_KEY}"
+      STORAGE_S3_SECRET: "${STORAGE_S3_SECRET}"
+      STORAGE_S3_REGION: "${STORAGE_S3_REGION}"
+      STORAGE_S3_ENDPOINT: "${STORAGE_S3_ENDPOINT}"
+      STORAGE_S3_FORCE_PATH_STYLE: "${STORAGE_S3_FORCE_PATH_STYLE}"
+      # STORAGE_S3_ROOT: "uploads"   # opcional: subpasta dentro do bucket
+    volumes:
+      - ./data/directus/extensions:/directus/extensions
