@@ -1,5 +1,11 @@
-data/minio/*
-data/postgres/*
-data/directus/extensions/*
+data/minio/**
+!data/minio/.gitkeep
+
+data/postgres/**
+!data/postgres/.gitkeep
+
+data/directus/extensions/**
+!data/directus/extensions/.gitkeep
 
 .env
+**/.DS_Store
