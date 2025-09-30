@@ -1,3 +1,5 @@
 data/minio/*
 data/postgres/*
 data/directus/extensions/*
+
+.env
